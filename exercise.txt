@@ -31,18 +31,27 @@ curl -X POST -H "Content-Type: application/vnd.kafka.json.v2+json" -H "Accept: a
 
 
 CREATE STREAM MOVEMENTS_STREAM (AMOUNT DOUBLE, FUND_ID int, EXTRACT_TS BIGINT) WITH (KAFKA_TOPIC='MOVEMENTS', VALUE_FORMAT='JSON');
+CREATE STREAM MOVEMENTS_STREAM_REKEY WITH (PARTITIONS=10) AS SELECT * FROM MOVEMENTS_STREAM PARTITION BY fund_id;
 select * from MOVEMENTS_STREAM;
 
-PRINT 'dbserver1.td.allocation' FROM BEGINNING;
-CREATE STREAM ALLOCATION_STREAM WITH (VALUE_FORMAT='JSON') AS SELECT payload.id, payload.fund_id FROM 'dbserver1.td.allocation';
-CREATE STREAM ALLOCATION_STREAM (id int, fund_id int) WITH (KAFKA_TOPIC='dbserver1.td.allocation', VALUE_FORMAT='JSON', KEY='fund_id') AS SELECT payload.id, payload.fund_id;
+PRINT 'dbserver1.td.allocation' FROM BEGINNING
+CREATE STREAM ALLOCATION_PAYLOAD_STREAM (payload varchar) WITH (KAFKA_TOPIC='dbserver1.td.allocation', VALUE_FORMAT='JSON');
 
-CREATE STREAM ALLOCATION_STREAM (id int, fund_id int, fund_name varchar, participant varchar, level double) WITH (KAFKA_TOPIC='dbserver1.td.allocation', VALUE_FORMAT='JSON', KEY='fund_id');
+SELECT EXTRACTJSONFIELD(payload, '$.id') as id, EXTRACTJSONFIELD(payload, '$.fund_id') as fund_id, EXTRACTJSONFIELD(payload, '$.fund_name') as fund_name, EXTRACTJSONFIELD(payload, '$.participant') as participant, EXTRACTJSONFIELD(payload, '$.level') as level FROM ALLOCATION_PAYLOAD_STREAM;
+
+CREATE STREAM ALLOCATION_STREAM AS SELECT EXTRACTJSONFIELD(payload, '$.id') as id, EXTRACTJSONFIELD(payload, '$.fund_id') as fund_id, EXTRACTJSONFIELD(payload, '$.fund_name') as fund_name, EXTRACTJSONFIELD(payload, '$.participant') as participant, EXTRACTJSONFIELD(payload, '$.level') as level FROM ALLOCATION_PAYLOAD_STREAM;
+
 SELECT * FROM ALLOCATION_STREAM;
 
 CREATE STREAM ALLOCATION_STREAM_REKEY WITH (PARTITIONS=1) AS SELECT * FROM ALLOCATION_STREAM PARTITION BY fund_id;
+
 CREATE TABLE ALLOCATION (id int, fund_id int, fund_name varchar, participant varchar, level double) WITH (KAFKA_TOPIC='ALLOCATION_STREAM_REKEY', VALUE_FORMAT ='JSON', KEY='fund_id');
 
-
 select a.participant, m.AMOUNT * a.level from MOVEMENTS_STREAM m inner join ALLOCATION a on a.fund_id = m.fund_id;
+
+
+select a.FUND_NAME, a.participant, a.level, m.amount, m.AMOUNT * a.level from MOVEMENTS_STREAM m inner join ALLOCATION a on a.fund_id = m.fund_id;
+
+select a.FUND_NAME, a.participant, cast(a.level as double) * cast(m.amount as double) from  MOVEMENTS_STREAM m FULL OUTER join ALLOCATION_STREAM a WITHIN 3 hours on a.fund_id = m.fund_id
+where m.amount is not null and a.level is not null;
  
