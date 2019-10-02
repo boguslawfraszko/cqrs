@@ -1,0 +1,18 @@
+docker-compose exec ksql-cli ksql http://ksql-server:8088
+
+docker run --tty --interactive --rm confluentinc/cp-kafkacat kafkacat -b 192.168.43.241:9092 -C -t MOVEMENTS -d broker -o beginning
+
+PRINT MOVEMENTS FROM BEGINNING;
+
+
+curl -X POST -H "Content-Type: application/vnd.kafka.json.v2+json" -H "Accept: application/vnd.kafka.v2+json"  --data "{\"records\":[{\"value\":{ \"AMOUNT\": \"79.10\", \"FUND_NAME\": \"BlackRock\", \"EXTRACT_TS\": \"1528992287749\" }}]}" "http://localhost:8082/topics/MOVEMENTS"
+
+
+CREATE STREAM MOVEMENTS_STREAM (AMOUNT BIGINT, FUND_NAME VARCHAR, EXTRACT_TS BIGINT) WITH (KAFKA_TOPIC='MOVEMENTS', VALUE_FORMAT='JSON');
+select * from MOVEMENTS_STREAM;
+
+
+
+docker-compose exec postgres bash -c "psql --username postgres"
+
+create table allocation(id int primary key, fund_name varchar, participant varchar, level float);
