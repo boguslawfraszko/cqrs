@@ -185,8 +185,7 @@ services:
      - OFFSET_STORAGE_TOPIC=my_connect_offsets
      - STATUS_STORAGE_TOPIC=my_connect_status
      - KEY_CONVERTER=org.apache.kafka.connect.storage.StringConverter
-     - VALUE_CONVERTER=io.confluent.connect.avro.AvroConverter
-     - CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL=http://schema-registry:8081
+     - VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
     depends_on:
      - broker
      - schema-registry
