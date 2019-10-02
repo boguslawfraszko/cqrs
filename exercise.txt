@@ -1,18 +1,44 @@
-docker-compose exec ksql-cli ksql http://ksql-server:8088
 
-docker run --tty --interactive --rm confluentinc/cp-kafkacat kafkacat -b 192.168.43.241:9092 -C -t MOVEMENTS -d broker -o beginning
+docker-compose exec postgres bash -c "psql --username postgres"
+
+
+SET search_path TO td;
+create schema td;
+create table td.allocation(id int primary key, fund_id int, fund_name varchar, participant varchar, level float);
+insert into td.allocation values (1, 1, 'BlackRock', 'John', 0.8);
+insert into td.allocation values (2, 1, 'BlackRock', 'Bob', 0.2);
+
+docker-compose exec connect-debezium bash -c "/scripts/create-pg-source.sh"
+
+docker-compose exec connect bash -c "/scripts/create-pg-sink.sh"
+docker-compose exec elasticsearch bash -c "/scripts/create-dynamic-mapping.sh"
+docker-compose exec connect bash -c "/scripts/create-es-sink.sh"
+
+curl "http://localhost:5601/api/saved_objects/index-pattern" -H "kbn-version: 6.3.0" -H "Content-Type: application/json;charset=UTF-8" -H "Accept: application/json, text/plain, */*" --data-binary "{\"attributes\":{\"title\":\"movements\",\"timeFieldName\":\"EXTRACT_TS\"}}"
+
+
+
+docker-compose exec ksql-cli ksql http://ksql-server:8088
+SET 'auto.offset.reset' = 'earliest';
+
+
+docker run --tty --interactive --rm confluentinc/cp-kafkacat kafkacat -b broker:9092 -C -t MOVEMENTS -d broker -o beginning
 
 PRINT MOVEMENTS FROM BEGINNING;
 
 
-curl -X POST -H "Content-Type: application/vnd.kafka.json.v2+json" -H "Accept: application/vnd.kafka.v2+json"  --data "{\"records\":[{\"value\":{ \"AMOUNT\": \"79.10\", \"FUND_NAME\": \"BlackRock\", \"EXTRACT_TS\": \"1528992287749\" }}]}" "http://localhost:8082/topics/MOVEMENTS"
+curl -X POST -H "Content-Type: application/vnd.kafka.json.v2+json" -H "Accept: application/vnd.kafka.v2+json"  --data "{\"records\":[{\"value\":{ \"AMOUNT\": \"79.10\", \"FUND_ID\": \"1\", \"EXTRACT_TS\": \"1528992287749\" }}]}" "http://localhost:8082/topics/MOVEMENTS"
 
 
-CREATE STREAM MOVEMENTS_STREAM (AMOUNT BIGINT, FUND_NAME VARCHAR, EXTRACT_TS BIGINT) WITH (KAFKA_TOPIC='MOVEMENTS', VALUE_FORMAT='JSON');
+CREATE STREAM MOVEMENTS_STREAM (AMOUNT DOUBLE, FUND_ID int, EXTRACT_TS BIGINT) WITH (KAFKA_TOPIC='MOVEMENTS', VALUE_FORMAT='JSON');
 select * from MOVEMENTS_STREAM;
 
+CREATE STREAM ALLOCATION_STREAM (id int, fund_id int, fund_name varchar, participant varchar, level double) WITH (KAFKA_TOPIC='dbserver1.td.allocation', VALUE_FORMAT='JSON');
 
 
-docker-compose exec postgres bash -c "psql --username postgres"
+CREATE STREAM ALLOCATION_STREAM_REKEY WITH (PARTITIONS=1) AS SELECT * FROM ALLOCATION_STREAM PARTITION BY fund_id;
+CREATE TABLE ALLOCATION (id int, fund_id int, fund_name varchar, participant varchar, level double) WITH (KAFKA_TOPIC='ALLOCATION_STREAM_REKEY', VALUE_FORMAT ='JSON', KEY='fund_id');
 
-create table allocation(id int primary key, fund_name varchar, participant varchar, level float);
+
+select a.participant, m.AMOUNT * a.level from MOVEMENTS_STREAM m inner join ALLOCATION a on a.fund_id = m.fund_id;
+ 
